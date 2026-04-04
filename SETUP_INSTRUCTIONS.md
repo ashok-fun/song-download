@@ -36,7 +36,7 @@ The script uses Selenium with Chrome browser. You need ChromeDriver:
 Open Command Prompt in the script directory and run:
 
 ```bash
-python download_ilayaraja.py
+python download.py
 ```
 
 ## How It Works

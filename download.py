@@ -8,8 +8,8 @@ from selenium.webdriver.chrome.options import Options
 import json
 
 # Configuration
-BASE_URL = "https://www.isaiminihq.com/singer/mano-songs/"
-DOWNLOAD_FOLDER = os.path.join(os.path.expanduser("~"), "Downloads", "mano_Songs")
+BASE_URL = "https://www.isaiminihq.com/singer/shankar-mahadevan-songs/"
+DOWNLOAD_FOLDER = os.path.join(os.path.expanduser("~"), "Downloads", "shankar_mahadevan_Songs")
 DOWNLOAD_MODE = "individual"  # "individual" for MP3 songs, "zip" for movie zips
 
 # Create download folder if it doesn't exist
