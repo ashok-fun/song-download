@@ -5,12 +5,12 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
-import requests
 import json
 
 # Configuration
-BASE_URL = "https://www.isaiminihq.com/music/ar-rahman-songs/"
-DOWNLOAD_FOLDER = os.path.join(os.path.expanduser("~"), "Downloads", "Ar_Rahman_songs")
+BASE_URL = "https://www.isaiminihq.com/singer/mano-songs/"
+DOWNLOAD_FOLDER = os.path.join(os.path.expanduser("~"), "Downloads", "mano_Songs")
+DOWNLOAD_MODE = "individual"  # "individual" for MP3 songs, "zip" for movie zips
 
 # Create download folder if it doesn't exist
 os.makedirs(DOWNLOAD_FOLDER, exist_ok=True)
@@ -29,12 +29,18 @@ prefs = {
 chrome_options.add_experimental_option("prefs", prefs)
 
 # Initialize WebDriver
+print("Initializing webdriver...")
 driver = webdriver.Chrome(options=chrome_options)
 driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
 driver.set_page_load_timeout(30)
+driver.implicitly_wait(10)
+
+print("Navigating to URL...")
+driver.get(BASE_URL)
+print("Waiting for page to load...")
+time.sleep(10)
 
 def download_movie_zip(movie_name):
-    """Download the zip file for a movie"""
     try:
         # Wait for the "Download Single Zip" button specifically
         download_button = WebDriverWait(driver, 10).until(
@@ -63,6 +69,36 @@ def download_movie_zip(movie_name):
         except:
             print(f"  Skipping: Download button not found (page may not have downloadable content)")
             return False
+
+def scrape_download_links():
+    """Get all individual download links from current page"""
+    try:
+        print("  Sleeping to load page...")
+        time.sleep(10)
+        print("  Scrolling to load all content...")
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(2)
+        print("  Finding elements...")
+        
+        # Find all download links
+        download_buttons = driver.find_elements(By.XPATH, "//a[contains(@href, '/download/hash/')]")
+        print(f"  Total download buttons found: {len(download_buttons)}")
+        
+        # Extract hrefs
+        links = []
+        for button in download_buttons:
+            href = button.get_attribute("href")
+            if href:
+                full_url = "https://www.isaiminihq.com" + href if href.startswith('/') else href
+                links.append(full_url)
+        
+        print(f"  Found {len(links)} download links")
+        if links:
+            print(f"  Sample: {links[0]}")
+        return links
+    except Exception as e:
+        print(f"Error scraping download links: {str(e)}")
+        return []
 
 def scrape_page():
     """Get all movie links from current page"""
@@ -150,73 +186,139 @@ def main():
         
         # Navigate to the starting URL
         print("Starting download process...")
-        driver.get(BASE_URL)
-        time.sleep(10)
+        # driver.get(BASE_URL)  # Already done before main
+        # time.sleep(10)
+        print("Starting processing")
         
         current_page = 1
         
-        while True:
-            print(f"\n{'='*60}")
-            print(f"Processing Page {current_page}")
-            print(f"URL: {driver.current_url}")
-            print(f"{'='*60}")
-            
-            # Get all movie links on current page
-            movie_links = scrape_page()
-            
-            if not movie_links:
-                print("No movies found on this page. Exiting.")
-                break
-            
-            print(f"Found {len(movie_links)} movies on this page\n")
-            
-            # Download each movie
-            for idx, (movie_name, movie_url) in enumerate(movie_links, 1):
-                if movie_url in downloaded_list:
-                    print(f"  Skipping {movie_name} (already downloaded)")
-                    continue
+        if DOWNLOAD_MODE == "individual":
+            print("Entering individual download mode...")
+            # Download individual MP3 songs
+            while True:
+                current_page_url = driver.current_url
+                print(f"\n{'='*60}")
+                print(f"Processing Page {current_page}")
+                print(f"URL: {current_page_url}")
+                print(f"{'='*60}")
                 
-                print(f"[{idx}/{len(movie_links)}] Processing: {movie_name}")
+                # Get all download links on current page
+                print("Scraping download links...")
+                download_links = scrape_download_links()
+                print(f"Scraped {len(download_links)} links")
                 
-                try:
-                    # Click on the movie link
-                    print(f"  Opening: {movie_url}")
-                    driver.get(movie_url)
-                    time.sleep(3)
+                if not download_links:
+                    print("No download links found on this page. Exiting.")
+                    break
+                
+                print(f"Found {len(download_links)} download links on this page\n")
+                
+                # Download each song
+                for idx, link in enumerate(download_links, 1):
+                    if link in downloaded_list:
+                        print(f"  Skipping {link} (already downloaded)")
+                        continue
                     
-                    # Download the zip file
-                    download_success = download_movie_zip(movie_name)
+                    print(f"[{idx}/{len(download_links)}] Downloading: {link}")
                     
-                    # Add to downloaded list only if download was successful
-                    if download_success:
-                        downloaded_list.append(movie_url)
+                    # Find and click the download button
+                    try:
+                        href_attr = link.replace("https://www.isaiminihq.com", "")
+                        button = WebDriverWait(driver, 10).until(
+                            EC.element_to_be_clickable((By.XPATH, f"//a[@href='{href_attr}']"))
+                        )
+                        original_handle = driver.current_window_handle
+                        button.click()
+                        time.sleep(5)  # Wait for download to start
+                        
+                        # Close the new tab if opened
+                        if len(driver.window_handles) > 1:
+                            new_handles = [h for h in driver.window_handles if h != original_handle]
+                            if new_handles:
+                                driver.switch_to.window(new_handles[0])
+                                time.sleep(2)
+                                driver.close()
+                                driver.switch_to.window(original_handle)
+                        
+                        downloaded_list.append(link)
                         with open('downloaded_list.json', 'w') as f:
                             json.dump(downloaded_list, f, indent=2)
+                    except Exception as e:
+                        print(f"  Error clicking button for {link}: {str(e)}")
+                        # Continue to next link
+                
+                # Try to go to next page
+                print(f"\nGoing to next page...")
+                current_page += 1
+                next_url = BASE_URL + f"?page={current_page}"
+                print(f"Navigating to: {next_url}")
+                driver.get(next_url)
+                time.sleep(5)
+        else:
+            # Download movie zips (original logic)
+            while True:
+                current_page_url = driver.current_url
+                print(f"\n{'='*60}")
+                print(f"Processing Page {current_page}")
+                print(f"URL: {current_page_url}")
+                print(f"{'='*60}")
+                
+                # Get all movie links on current page
+                movie_links = scrape_page()
+                
+                if not movie_links:
+                    print("No movies found on this page. Exiting.")
+                    break
+                
+                print(f"Found {len(movie_links)} movies on this page\n")
+                
+                # Download each movie
+                for idx, (movie_name, movie_url) in enumerate(movie_links, 1):
+                    if movie_url in downloaded_list:
+                        print(f"  Skipping {movie_name} (already downloaded)")
+                        continue
                     
-                    # Close the new tab opened by download_movie_zip
-                    if len(driver.window_handles) > 1:
-                        driver.close()  # Close current tab
-                        driver.switch_to.window(driver.window_handles[0])  # Switch back to main tab
-                    print(f"  Going back to the music list...")
-                    driver.get(BASE_URL if current_page == 1 else driver.current_url)
-                    time.sleep(3)
+                    print(f"[{idx}/{len(movie_links)}] Processing: {movie_name}")
                     
-                except Exception as e:
-                    print(f"  Error processing {movie_name}: {str(e)}")
-                    # Do not add to list on error to allow retry
                     try:
-                        driver.get(BASE_URL if current_page == 1 else driver.current_url)
-                    except:
-                        pass
-                    time.sleep(2)
-            
-            # Try to go to next page
-            print(f"\nLooking for next page...")
-            if not go_to_next_page():
-                print("Reached the last page or no next button found. Exiting.")
-                break
-            
-            current_page += 1
+                        # Click on the movie link
+                        print(f"  Opening: {movie_url}")
+                        driver.get(movie_url)
+                        time.sleep(3)
+                        
+                        # Download the zip file
+                        download_success = download_movie_zip(movie_name)
+                        
+                        # Add to downloaded list only if download was successful
+                        if download_success:
+                            downloaded_list.append(movie_url)
+                            with open('downloaded_list.json', 'w') as f:
+                                json.dump(downloaded_list, f, indent=2)
+                        
+                        # Close the new tab opened by download_movie_zip
+                        if len(driver.window_handles) > 1:
+                            driver.close()  # Close current tab
+                            driver.switch_to.window(driver.window_handles[0])  # Switch back to main tab
+                        print(f"  Going back to the music list...")
+                        driver.get(current_page_url)
+                        time.sleep(3)
+                        
+                    except Exception as e:
+                        print(f"  Error processing {movie_name}: {str(e)}")
+                        # Do not add to list on error to allow retry
+                        try:
+                            driver.get(current_page_url)
+                        except:
+                            pass
+                        time.sleep(2)
+                
+                # Try to go to next page
+                print(f"\nLooking for next page...")
+                if not go_to_next_page():
+                    print("Reached the last page or no next button found. Exiting.")
+                    break
+                
+                current_page += 1
         
         print("\n" + "="*60)
         print("Download process completed!")
